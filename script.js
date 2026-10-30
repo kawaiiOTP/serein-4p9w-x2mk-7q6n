@@ -63,6 +63,7 @@ function parseCSV(text) {
   return rows;
 }
 
+// キャラクターデータ取得
 async function loadCharacters() {
   characterList.textContent = "読み込み中...";
 
@@ -302,13 +303,12 @@ async function renderPreview() {
     // 背景は透明
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 補間による縁のにじみを抑える
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
 
     let y = 0;
 
-    // 画像を隙間なく配置
+    // 画像を配置
     for (let row = 0; row < rowCount; row++) {
       let x = 0;
 
@@ -329,7 +329,6 @@ async function renderPreview() {
           size.height
         );
 
-        // 次の画像を直前の画像のすぐ隣に配置
         x += size.width;
       }
 
@@ -348,6 +347,17 @@ async function renderPreview() {
   }
 }
 
+// スマホ・iPad判定
+function isMobileDevice() {
+  return (
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (
+      navigator.platform === "MacIntel" &&
+      navigator.maxTouchPoints > 1
+    )
+  );
+}
+
 // PNG保存
 async function downloadPNG() {
   if (!selected.length) {
@@ -355,16 +365,45 @@ async function downloadPNG() {
     return;
   }
 
-  // 描画が完了するまで待つ
   if (isRendering) {
     alert("画像を準備中です。少し待ってから保存してください。");
     return;
   }
 
-  const link = document.createElement("a");
-  link.download = "character-grid.png";
-  link.href = canvas.toDataURL("image/png");
-  link.click();
+  const mobile = isMobileDevice();
+
+  // スマホ・iPadはクリック直後に新しいタブを開く
+  const newTab = mobile
+    ? window.open("about:blank", "_blank")
+    : null;
+
+  canvas.toBlob(blob => {
+    if (!blob) {
+      if (newTab) newTab.close();
+      alert("画像の生成に失敗しました");
+      return;
+    }
+
+    const imageURL = URL.createObjectURL(blob);
+
+    if (mobile && newTab) {
+      // 新しいタブに画像をフルサイズ表示
+      newTab.location.href = imageURL;
+    } else if (mobile && !newTab) {
+      // ポップアップがブロックされた場合は同じタブで表示
+      window.location.href = imageURL;
+    } else {
+      // PCは従来どおりダウンロード
+      const link = document.createElement("a");
+      link.download = "character-grid.png";
+      link.href = imageURL;
+      link.click();
+
+      setTimeout(() => {
+        URL.revokeObjectURL(imageURL);
+      }, 60000);
+    }
+  }, "image/png");
 }
 
 // イベント設定
