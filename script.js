@@ -5,6 +5,8 @@ const IMAGE_BASE = "./images/";
 
 let characters = [];
 let selected = [];
+let isRendering = false;
+let renderVersion = 0;
 
 const characterList = document.getElementById("characterList");
 const selectedList = document.getElementById("selectedList");
@@ -14,6 +16,10 @@ const scaleInput = document.getElementById("scale");
 const canvas = document.getElementById("previewCanvas");
 const ctx = canvas.getContext("2d");
 
+const previewButton = document.getElementById("previewButton");
+const downloadButton = document.getElementById("downloadButton");
+
+// CSV読み込み
 function parseCSV(text) {
   const rows = [];
   let row = [];
@@ -36,7 +42,11 @@ function parseCSV(text) {
     } else if ((c === "\n" || c === "\r") && !quoted) {
       if (c === "\r" && text[i + 1] === "\n") i++;
       row.push(value.trim());
-      if (row.some(cell => cell !== "")) rows.push(row);
+
+      if (row.some(cell => cell !== "")) {
+        rows.push(row);
+      }
+
       row = [];
       value = "";
     } else {
@@ -45,15 +55,23 @@ function parseCSV(text) {
   }
 
   row.push(value.trim());
-  if (row.some(cell => cell !== "")) rows.push(row);
+
+  if (row.some(cell => cell !== "")) {
+    rows.push(row);
+  }
 
   return rows;
 }
 
 async function loadCharacters() {
+  characterList.textContent = "読み込み中...";
+
   try {
     const response = await fetch(CSV_URL);
-    if (!response.ok) throw new Error("CSVを取得できませんでした");
+
+    if (!response.ok) {
+      throw new Error("CSVを取得できませんでした");
+    }
 
     const text = await response.text();
     const rows = parseCSV(text);
@@ -73,24 +91,29 @@ async function loadCharacters() {
       filename: row[imageIndex]
     })).filter(c => c.korean && c.japanese && c.filename);
 
+    // 韓国語名で 가나다順
     characters.sort((a, b) =>
       a.korean.localeCompare(b.korean, "ko")
     );
 
     renderCharacters();
+
   } catch (error) {
     characterList.textContent =
       "読み込みに失敗しました：" + error.message;
   }
 }
 
+// 画像ファイルのパス
 function imagePath(character) {
-  return IMAGE_BASE + encodeURIComponent(character.filename)
-    .replace(/%2F/gi, "/");
+  return IMAGE_BASE +
+    encodeURIComponent(character.filename).replace(/%2F/gi, "/");
 }
 
+// キャラクター一覧
 function renderCharacters() {
   const keyword = searchInput.value.trim().toLowerCase();
+
   characterList.innerHTML = "";
 
   characters
@@ -101,8 +124,11 @@ function renderCharacters() {
     .forEach(character => {
       const item = document.createElement("button");
       item.className = "character-item";
-      item.classList.toggle("selected",
-        selected.includes(character));
+
+      item.classList.toggle(
+        "selected",
+        selected.includes(character)
+      );
 
       const img = document.createElement("img");
       img.src = imagePath(character);
@@ -113,11 +139,16 @@ function renderCharacters() {
       name.textContent = character.japanese;
 
       item.append(img, name);
-      item.addEventListener("click", () => toggleCharacter(character));
+
+      item.addEventListener("click", () => {
+        toggleCharacter(character);
+      });
+
       characterList.appendChild(item);
     });
 }
 
+// 選択・解除
 function toggleCharacter(character) {
   if (selected.includes(character)) {
     selected = selected.filter(c => c !== character);
@@ -130,6 +161,7 @@ function toggleCharacter(character) {
   renderPreview();
 }
 
+// 選択済み一覧
 function renderSelected() {
   selectedList.innerHTML = "";
 
@@ -144,27 +176,40 @@ function renderSelected() {
     up.textContent = "↑";
     up.title = "前へ";
     up.disabled = index === 0;
-    up.addEventListener("click", () => moveCharacter(index, -1));
+
+    up.addEventListener("click", () => {
+      moveCharacter(index, -1);
+    });
 
     const down = document.createElement("button");
     down.textContent = "↓";
     down.title = "後ろへ";
     down.disabled = index === selected.length - 1;
-    down.addEventListener("click", () => moveCharacter(index, 1));
+
+    down.addEventListener("click", () => {
+      moveCharacter(index, 1);
+    });
 
     const remove = document.createElement("button");
     remove.textContent = "×";
     remove.title = "選択解除";
-    remove.addEventListener("click", () => toggleCharacter(character));
+
+    remove.addEventListener("click", () => {
+      toggleCharacter(character);
+    });
 
     item.append(name, up, down, remove);
     selectedList.appendChild(item);
   });
 }
 
+// 順番変更
 function moveCharacter(index, direction) {
   const target = index + direction;
-  if (target < 0 || target >= selected.length) return;
+
+  if (target < 0 || target >= selected.length) {
+    return;
+  }
 
   [selected[index], selected[target]] =
     [selected[target], selected[index]];
@@ -173,74 +218,107 @@ function moveCharacter(index, direction) {
   renderPreview();
 }
 
+// 画像読み込み
 function loadImage(character) {
   return new Promise((resolve, reject) => {
     const img = new Image();
+
     img.onload = () => resolve(img);
-    img.onerror = () => reject(
-      new Error(`${character.filename} を読み込めません`)
-    );
+
+    img.onerror = () => {
+      reject(
+        new Error(`${character.filename} を読み込めません`)
+      );
+    };
+
     img.src = imagePath(character);
   });
 }
 
+// プレビュー描画
 async function renderPreview() {
+  const currentVersion = ++renderVersion;
+
   if (!selected.length) {
     canvas.width = 1;
     canvas.height = 1;
     return;
   }
 
-  const columns = Math.max(1,
-    Math.min(30, Number(columnsInput.value) || 1));
-  const scale = Math.max(10,
-    Math.min(300, Number(scaleInput.value) || 100)) / 100;
+  const columns = Math.max(
+    1,
+    Math.min(30, Number(columnsInput.value) || 1)
+  );
+
+  const scale = Math.max(
+    10,
+    Math.min(300, Number(scaleInput.value) || 100)
+  ) / 100;
+
+  isRendering = true;
+  downloadButton.disabled = true;
 
   try {
-    const images = await Promise.all(selected.map(loadImage));
+    const images = await Promise.all(
+      selected.map(loadImage)
+    );
 
+    // 描画中に選択内容が変わった場合は古い処理を破棄
+    if (currentVersion !== renderVersion) {
+      return;
+    }
+
+    // サイズを整数pxに丸める
     const sizes = images.map(img => ({
-      width: img.naturalWidth * scale,
-      height: img.naturalHeight * scale
+      width: Math.max(1, Math.round(img.naturalWidth * scale)),
+      height: Math.max(1, Math.round(img.naturalHeight * scale))
     }));
 
     const rowCount = Math.ceil(images.length / columns);
     const rowHeights = [];
-
-    for (let row = 0; row < rowCount; row++) {
-      const start = row * columns;
-      const end = Math.min(start + columns, images.length);
-      rowHeights.push(Math.max(
-        ...sizes.slice(start, end).map(s => s.height)
-      ));
-    }
-
     const rowWidths = [];
 
+    // 各行の高さと幅を計算
     for (let row = 0; row < rowCount; row++) {
       const start = row * columns;
       const end = Math.min(start + columns, images.length);
+      const rowSizes = sizes.slice(start, end);
+
+      rowHeights.push(
+        Math.max(...rowSizes.map(s => s.height))
+      );
+
       rowWidths.push(
-        sizes.slice(start, end).reduce((sum, s) => sum + s.width, 0)
+        rowSizes.reduce((sum, s) => sum + s.width, 0)
       );
     }
 
+    // Canvasサイズ
     canvas.width = Math.ceil(Math.max(...rowWidths));
     canvas.height = Math.ceil(
       rowHeights.reduce((sum, h) => sum + h, 0)
     );
 
+    // 背景は透明
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 補間による縁のにじみを抑える
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
 
     let y = 0;
 
+    // 画像を隙間なく配置
     for (let row = 0; row < rowCount; row++) {
       let x = 0;
+
       const start = row * columns;
       const end = Math.min(start + columns, images.length);
 
       for (let i = start; i < end; i++) {
         const size = sizes[i];
+
+        // 各行の下端を揃える
         const bottomOffset = rowHeights[row] - size.height;
 
         ctx.drawImage(
@@ -251,35 +329,53 @@ async function renderPreview() {
           size.height
         );
 
+        // 次の画像を直前の画像のすぐ隣に配置
         x += size.width;
       }
 
       y += rowHeights[row];
     }
+
   } catch (error) {
     console.error(error);
     alert(error.message);
+
+  } finally {
+    if (currentVersion === renderVersion) {
+      isRendering = false;
+      downloadButton.disabled = false;
+    }
   }
 }
 
+// PNG保存
+async function downloadPNG() {
+  if (!selected.length) {
+    alert("キャラクターを選択してください");
+    return;
+  }
+
+  // 描画が完了するまで待つ
+  if (isRendering) {
+    alert("画像を準備中です。少し待ってから保存してください。");
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.download = "character-grid.png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+// イベント設定
 searchInput.addEventListener("input", renderCharacters);
-document.getElementById("previewButton")
-  .addEventListener("click", renderPreview);
+
+previewButton.addEventListener("click", renderPreview);
 
 columnsInput.addEventListener("change", renderPreview);
 scaleInput.addEventListener("change", renderPreview);
 
-document.getElementById("downloadButton")
-  .addEventListener("click", () => {
-    if (!selected.length) {
-      alert("キャラクターを選択してください");
-      return;
-    }
+downloadButton.addEventListener("click", downloadPNG);
 
-    const link = document.createElement("a");
-    link.download = "character-grid.png";
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-  });
-
+// 初期化
 loadCharacters();
